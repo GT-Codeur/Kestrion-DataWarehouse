@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - Redshift Serverless namespace and workgroup (capped capacity, private)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Default-VPC subnets (give it all of them, Redshift Serverless wants several Availability Zones)
+  RedshiftRoleArn:
+    Type: String
+  DatabaseName:
+    Type: String
+    Default: dev
+  AdminUsername:
+    Type: String
+    Default: admin
+  AdminPassword:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[a-zA-Z0-9]{8,64}$'
+    Description: 8-64 letters and digits with at least one lower case, one upper case and one digit
+  BaseCapacity:
+    Type: Number
+    Default: 8
+    Description: Base RPU (cost lever, compare 8 and 16 in the cost analysis)
+  MaxCapacity:
+    Type: Number
+    Default: 32
+    Description: Hard cap on RPU
+
+Resources:
+  WorkgroupSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redshift Serverless workgroup (no inbound rules, reached through the Data API and Query editor)
+      VpcId: !Ref VpcId
+
+  Namespace:
+    Type: AWS::RedshiftServerless::Namespace
+    Properties:
+      NamespaceName: !Sub '${ProjectName}-ns'
+      DbName: !Ref DatabaseName
+      AdminUsername: !Ref AdminUsername
+      AdminUserPassword: !Ref AdminPassword
+      IamRoles:
+        - !Ref RedshiftRoleArn
+      DefaultIamRoleArn: !Ref RedshiftRoleArn
+
+  Workgroup:
+    Type: AWS::RedshiftServerless::Workgroup
+    DependsOn: Namespace
+    Properties:
+      WorkgroupName: !Sub '${ProjectName}-wg'
+      NamespaceName: !Sub '${ProjectName}-ns'
+      BaseCapacity: !Ref BaseCapacity
+      MaxCapacity: !Ref MaxCapacity
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds:
+        - !Ref WorkgroupSecurityGroup
+      PubliclyAccessible: false
+      EnhancedVpcRouting: false
+
+  # Admin credentials for the one-off schema setup script (the pipeline itself uses IAM, not this secret).
+  # No explicit Name: a fixed name would collide with the 30-day recovery window after a teardown.
+  AdminSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Redshift Serverless admin credentials for schema setup
+      SecretString: !Sub '{"username":"${AdminUsername}","password":"${AdminPassword}"}'
+
+Outputs:
+  WorkgroupName:
+    Value: !Sub '${ProjectName}-wg'
+  NamespaceName:
+    Value: !Sub '${ProjectName}-ns'
+  DatabaseName:
+    Value: !Ref DatabaseName
+  AdminSecretArn:
+    Value: !Ref AdminSecret

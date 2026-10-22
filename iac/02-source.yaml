@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - source system (RDS PostgreSQL with logical replication enabled for DMS CDC)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Default VPC id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Default-VPC subnets in at least two Availability Zones
+  MyIpCidr:
+    Type: String
+    AllowedPattern: '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}$'
+    Description: Your public IP as a /32 CIDR, used to seed the database and run the change generator
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 40
+    AllowedPattern: '^[a-zA-Z0-9]*$'
+    Description: Master password for user postgres (letters and digits only)
+  DbName:
+    Type: String
+    Default: kestriondb
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+
+Resources:
+  DmsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DMS replication instance (no inbound rules)
+      VpcId: !Ref VpcId
+      Tags:
+        - { Key: Name, Value: !Sub '${ProjectName}-dms' }
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Source database, PostgreSQL from DMS and from the operator IP only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref DmsSecurityGroup
+          Description: DMS replication instance
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Ref MyIpCidr
+          Description: Operator laptop (seed and change generator)
+      Tags:
+        - { Key: Name, Value: !Sub '${ProjectName}-source-db' }
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Source database subnets
+      SubnetIds: !Ref SubnetIds
+
+  # rds.logical_replication=1 sets wal_level=logical, which DMS needs to read the change stream
+  DbParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Logical replication for DMS CDC
+      Family: postgres16
+      Parameters:
+        rds.logical_replication: '1'
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectName}-source'
+      Engine: postgres
+      EngineVersion: '16'
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: '20'
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: false
+      DBName: !Ref DbName
+      MasterUsername: postgres
+      MasterUserPassword: !Ref DbPassword
+      PubliclyAccessible: true
+      VPCSecurityGroups:
+        - !Ref DbSecurityGroup
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      DBParameterGroupName: !Ref DbParameterGroup
+      BackupRetentionPeriod: 1
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: false
+
+Outputs:
+  DbEndpoint:
+    Value: !GetAtt DbInstance.Endpoint.Address
+  DbName:
+    Value: !Ref DbName
+  DmsSecurityGroupId:
+    Value: !Ref DmsSecurityGroup

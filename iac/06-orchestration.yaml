@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - Step Functions state machine, EventBridge schedule, execution logging
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+  DataBucketName:
+    Type: String
+  TopicArn:
+    Type: String
+  SfnRoleArn:
+    Type: String
+  EventsRoleArn:
+    Type: String
+  WorkgroupName:
+    Type: String
+  DatabaseName:
+    Type: String
+    Default: dev
+  DmsTaskId:
+    Type: String
+  TransformJobName:
+    Type: String
+  QualityGateJobName:
+    Type: String
+  ScheduleExpression:
+    Type: String
+    Default: rate(30 minutes)
+    Description: A run takes 6-12 minutes, so keep the interval above 15 minutes to avoid overlaps
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: Leave DISABLED except while demoing, otherwise it runs (and costs) around the clock
+
+Resources:
+  PipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/vendedlogs/states/${ProjectName}-pipeline'
+      RetentionInDays: 14
+
+  PipelineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-pipeline'
+      StateMachineType: STANDARD
+      RoleArn: !Ref SfnRoleArn
+      DefinitionS3Location:
+        Bucket: !Ref DataBucketName
+        Key: scripts/pipeline.asl.json
+      DefinitionSubstitutions:
+        DataBucket: !Ref DataBucketName
+        TopicArn: !Ref TopicArn
+        WorkgroupName: !Ref WorkgroupName
+        DatabaseName: !Ref DatabaseName
+        TransformJob: !Ref TransformJobName
+        GateJob: !Ref QualityGateJobName
+      LoggingConfiguration:
+        Level: ERROR
+        IncludeExecutionData: false
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt PipelineLogGroup.Arn
+
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${ProjectName}-pipeline-schedule'
+      Description: Starts the Kestrion pipeline on a schedule
+      ScheduleExpression: !Ref ScheduleExpression
+      State: !Ref ScheduleState
+      Targets:
+        - Id: pipeline
+          Arn: !Ref PipelineStateMachine
+          RoleArn: !Ref EventsRoleArn
+          Input: !Sub '{"bucket":"${DataBucketName}","dms_task_id":"${DmsTaskId}"}'
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref PipelineStateMachine
+  StateMachineInput:
+    Value: !Sub '{"bucket":"${DataBucketName}","dms_task_id":"${DmsTaskId}"}'
+  ScheduleRuleName:
+    Value: !Ref ScheduleRule

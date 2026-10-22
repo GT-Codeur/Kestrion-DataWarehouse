@@ -1,0 +1,121 @@
+product_id,sku,product_name,category,unit_cost,qty_on_hand
+1,SKU-1001,Grocery Item 1,Grocery,63.85,1745
+2,SKU-1002,Hardware Item 2,Hardware,168.6,4307
+3,SKU-1003,Grocery Item 3,Grocery,218.11,435
+4,SKU-1004,Electronics Item 4,Electronics,68.04,2385
+5,SKU-1005,Grocery Item 5,Grocery,205.25,2996
+6,SKU-1006,Home Goods Item 6,Home Goods,123.09,3085
+7,SKU-1007,Outdoor Item 7,Outdoor,198.96,4759
+8,SKU-1008,Electronics Item 8,Electronics,90.34,3054
+9,SKU-1009,Grocery Item 9,Grocery,4.7,1398
+10,SKU-1010,Building Supply Item 10,Building Supply,150.03,3431
+11,SKU-1011,Outdoor Item 11,Outdoor,5.24,2766
+12,SKU-1012,Building Supply Item 12,Building Supply,64.37,563
+13,SKU-1013,Grocery Item 13,Grocery,88.27,4498
+14,SKU-1014,Building Supply Item 14,Building Supply,126.67,4234
+15,SKU-1015,Electronics Item 15,Electronics,218.57,3197
+16,SKU-1016,Grocery Item 16,Grocery,57.3,3965
+17,SKU-1017,Home Goods Item 17,Home Goods,123.42,1150
+18,SKU-1018,Outdoor Item 18,Outdoor,111.2,973
+19,SKU-1019,Outdoor Item 19,Outdoor,59.78,3133
+20,SKU-1020,Hardware Item 20,Hardware,177.99,1480
+21,SKU-1021,Grocery Item 21,Grocery,63.87,173
+22,SKU-1022,Grocery Item 22,Grocery,23.43,4073
+23,SKU-1023,Hardware Item 23,Hardware,102.12,1702
+24,SKU-1024,Hardware Item 24,Hardware,211.5,3213
+25,SKU-1025,Home Goods Item 25,Home Goods,153.59,358
+26,SKU-1026,Outdoor Item 26,Outdoor,148.4,2146
+27,SKU-1027,Hardware Item 27,Hardware,171.08,2710
+28,SKU-1028,Hardware Item 28,Hardware,205.44,4087
+29,SKU-1029,Building Supply Item 29,Building Supply,31.79,3627
+30,SKU-1030,Hardware Item 30,Hardware,203.5,4130
+31,SKU-1031,Home Goods Item 31,Home Goods,142.15,3075
+32,SKU-1032,Hardware Item 32,Hardware,162.35,3606
+33,SKU-1033,Home Goods Item 33,Home Goods,198.97,1525
+34,SKU-1034,Home Goods Item 34,Home Goods,151.41,4460
+35,SKU-1035,Grocery Item 35,Grocery,34.94,4872
+36,SKU-1036,Home Goods Item 36,Home Goods,145.49,1476
+37,SKU-1037,Building Supply Item 37,Building Supply,89.26,1473
+38,SKU-1038,Hardware Item 38,Hardware,12.32,3800
+39,SKU-1039,Hardware Item 39,Hardware,208.9,4216
+40,SKU-1040,Building Supply Item 40,Building Supply,88.25,2324
+41,SKU-1041,Grocery Item 41,Grocery,90.53,596
+42,SKU-1042,Outdoor Item 42,Outdoor,24.97,2801
+43,SKU-1043,Home Goods Item 43,Home Goods,163.17,2711
+44,SKU-1044,Home Goods Item 44,Home Goods,68.86,835
+45,SKU-1045,Grocery Item 45,Grocery,89.93,1034
+46,SKU-1046,Hardware Item 46,Hardware,150.48,740
+47,SKU-1047,Building Supply Item 47,Building Supply,205.47,1882
+48,SKU-1048,Electronics Item 48,Electronics,216.45,2013
+49,SKU-1049,Home Goods Item 49,Home Goods,72.73,2292
+50,SKU-1050,Hardware Item 50,Hardware,199.91,819
+51,SKU-1051,Grocery Item 51,Grocery,114.35,2098
+52,SKU-1052,Building Supply Item 52,Building Supply,133.26,567
+53,SKU-1053,Hardware Item 53,Hardware,40.18,3184
+54,SKU-1054,Building Supply Item 54,Building Supply,97.01,1187
+55,SKU-1055,Building Supply Item 55,Building Supply,181.87,4099
+56,SKU-1056,Building Supply Item 56,Building Supply,159.01,2630
+57,SKU-1057,Outdoor Item 57,Outdoor,57.56,845
+58,SKU-1058,Hardware Item 58,Hardware,215.1,3830
+59,SKU-1059,Grocery Item 59,Grocery,56.39,2319
+60,SKU-1060,Hardware Item 60,Hardware,180.05,3812
+61,SKU-1061,Electronics Item 61,Electronics,165.01,1869
+62,SKU-1062,Grocery Item 62,Grocery,79.87,2124
+63,SKU-1063,Hardware Item 63,Hardware,201.84,765
+64,SKU-1064,Grocery Item 64,Grocery,184.46,3032
+65,SKU-1065,Outdoor Item 65,Outdoor,49.69,697
+66,SKU-1066,Building Supply Item 66,Building Supply,177.29,4715
+67,SKU-1067,Home Goods Item 67,Home Goods,163.38,4699
+68,SKU-1068,Building Supply Item 68,Building Supply,40.54,2478
+69,SKU-1069,Outdoor Item 69,Outdoor,78.47,38
+70,SKU-1070,Outdoor Item 70,Outdoor,108.01,1590
+71,SKU-1071,Outdoor Item 71,Outdoor,211.46,4953
+72,SKU-1072,Grocery Item 72,Grocery,56.16,3102
+73,SKU-1073,Building Supply Item 73,Building Supply,172.94,884
+74,SKU-1074,Hardware Item 74,Hardware,136.9,711
+75,SKU-1075,Grocery Item 75,Grocery,103.11,4923
+76,SKU-1076,Electronics Item 76,Electronics,119.79,1650
+77,SKU-1077,Grocery Item 77,Grocery,84.19,3291
+78,SKU-1078,Hardware Item 78,Hardware,63.15,3829
+79,SKU-1079,Grocery Item 79,Grocery,120.91,28
+80,SKU-1080,Hardware Item 80,Hardware,219.2,1282
+81,SKU-1081,Home Goods Item 81,Home Goods,83.79,2164
+82,SKU-1082,Outdoor Item 82,Outdoor,206.56,1633
+83,SKU-1083,Hardware Item 83,Hardware,62.45,893
+84,SKU-1084,Hardware Item 84,Hardware,66.43,3619
+85,SKU-1085,Electronics Item 85,Electronics,53.06,4756
+86,SKU-1086,Outdoor Item 86,Outdoor,43.03,4479
+87,SKU-1087,Outdoor Item 87,Outdoor,185.4,2955
+88,SKU-1088,Outdoor Item 88,Outdoor,163.54,735
+89,SKU-1089,Grocery Item 89,Grocery,98.19,3021
+90,SKU-1090,Electronics Item 90,Electronics,160.44,4328
+91,SKU-1091,Outdoor Item 91,Outdoor,198.24,1938
+92,SKU-1092,Hardware Item 92,Hardware,23.12,3639
+93,SKU-1093,Electronics Item 93,Electronics,138.25,3926
+94,SKU-1094,Building Supply Item 94,Building Supply,25.7,2491
+95,SKU-1095,Grocery Item 95,Grocery,138.13,4308
+96,SKU-1096,Building Supply Item 96,Building Supply,127.78,3771
+97,SKU-1097,Outdoor Item 97,Outdoor,208.2,1591
+98,SKU-1098,Grocery Item 98,Grocery,83.84,4580
+99,SKU-1099,Home Goods Item 99,Home Goods,51.45,3999
+100,SKU-1100,Building Supply Item 100,Building Supply,77.65,169
+101,SKU-1101,Building Supply Item 101,Building Supply,152.85,2855
+102,SKU-1102,Electronics Item 102,Electronics,193.66,1197
+103,SKU-1103,Hardware Item 103,Hardware,18.91,2272
+104,SKU-1104,Building Supply Item 104,Building Supply,65.84,6
+105,SKU-1105,Home Goods Item 105,Home Goods,145.87,4052
+106,SKU-1106,Home Goods Item 106,Home Goods,43.57,4846
+107,SKU-1107,Outdoor Item 107,Outdoor,41.96,4808
+108,SKU-1108,Grocery Item 108,Grocery,44.46,2418
+109,SKU-1109,Hardware Item 109,Hardware,73.81,4526
+110,SKU-1110,Grocery Item 110,Grocery,71.89,342
+111,SKU-1111,Hardware Item 111,Hardware,101.92,4264
+112,SKU-1112,Home Goods Item 112,Home Goods,200.29,4203
+113,SKU-1113,Outdoor Item 113,Outdoor,111.67,4661
+114,SKU-1114,Home Goods Item 114,Home Goods,106.94,4390
+115,SKU-1115,Hardware Item 115,Hardware,206.1,690
+116,SKU-1116,Hardware Item 116,Hardware,54.05,4329
+117,SKU-1117,Home Goods Item 117,Home Goods,147.33,2451
+118,SKU-1118,Home Goods Item 118,Home Goods,75.69,4358
+119,SKU-1119,Home Goods Item 119,Home Goods,48.06,2789
+120,SKU-1120,Grocery Item 120,Grocery,88.07,2528

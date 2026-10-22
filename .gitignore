@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Never commit credentials or local overrides
+.env
+*.env
+*.pem
+*.key
+credentials*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

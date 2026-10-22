@@ -1,0 +1,200 @@
+{
+  "_description": "Least-privilege IAM design for the Kestrion CDC pipeline, generated from iac/01-foundation.yaml. One role per service; no role can reach another service's prefixes. Not hand-edited.",
+  "_placeholders": [
+    "<account-id>",
+    "<region>",
+    "<project>",
+    "<data-bucket>"
+  ],
+  "roles": {
+    "<project>-glue-role": {
+      "logicalId": "GlueRole",
+      "trustedServices": [
+        "glue.amazonaws.com"
+      ],
+      "managedPolicies": [
+        "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+      ],
+      "inlinePolicies": {
+        "data-bucket-access": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+              ],
+              "Resource": "arn:aws:s3:::<data-bucket>/*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+              ],
+              "Resource": "arn:aws:s3:::<data-bucket>"
+            }
+          ]
+        }
+      }
+    },
+    "<project>-dms-s3-role": {
+      "logicalId": "DmsS3Role",
+      "trustedServices": [
+        "dms.amazonaws.com"
+      ],
+      "managedPolicies": [],
+      "inlinePolicies": {
+        "write-raw-prefix": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:PutObjectTagging"
+              ],
+              "Resource": "arn:aws:s3:::<data-bucket>/raw/*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+              ],
+              "Resource": "arn:aws:s3:::<data-bucket>"
+            }
+          ]
+        }
+      }
+    },
+    "<project>-redshift-role": {
+      "logicalId": "RedshiftRole",
+      "trustedServices": [
+        "redshift-serverless.amazonaws.com",
+        "redshift.amazonaws.com"
+      ],
+      "managedPolicies": [],
+      "inlinePolicies": {
+        "read-curated-prefix": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "s3:GetObject",
+              "Resource": "arn:aws:s3:::<data-bucket>/curated/*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation"
+              ],
+              "Resource": "arn:aws:s3:::<data-bucket>"
+            }
+          ]
+        }
+      }
+    },
+    "<project>-sfn-role": {
+      "logicalId": "SfnRole",
+      "trustedServices": [
+        "states.amazonaws.com"
+      ],
+      "managedPolicies": [],
+      "inlinePolicies": {
+        "pipeline-access": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DmsReplicationCheck",
+              "Effect": "Allow",
+              "Action": "dms:DescribeReplicationTasks",
+              "Resource": "*"
+            },
+            {
+              "Sid": "RunTheTwoGlueJobs",
+              "Effect": "Allow",
+              "Action": [
+                "glue:StartJobRun",
+                "glue:GetJobRun",
+                "glue:GetJobRuns",
+                "glue:BatchStopJobRun"
+              ],
+              "Resource": [
+                "arn:aws:glue:<region>:<account-id>:job/<project>-cdc-transform",
+                "arn:aws:glue:<region>:<account-id>:job/<project>-dq-gate"
+              ]
+            },
+            {
+              "Sid": "ReadQualityVerdict",
+              "Effect": "Allow",
+              "Action": "s3:GetObject",
+              "Resource": "arn:aws:s3:::<data-bucket>/dq/results/*"
+            },
+            {
+              "Sid": "RedshiftDataApi",
+              "Effect": "Allow",
+              "Action": [
+                "redshift-data:BatchExecuteStatement",
+                "redshift-data:ExecuteStatement",
+                "redshift-data:DescribeStatement",
+                "redshift-data:GetStatementResult"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "RedshiftServerlessCredentials",
+              "Effect": "Allow",
+              "Action": "redshift-serverless:GetCredentials",
+              "Resource": "arn:aws:redshift-serverless:<region>:<account-id>:workgroup/*"
+            },
+            {
+              "Sid": "PublishAlerts",
+              "Effect": "Allow",
+              "Action": "sns:Publish",
+              "Resource": "arn:aws:sns:<region>:<account-id>:<project>-pipeline-alerts"
+            },
+            {
+              "Sid": "ExecutionLogging",
+              "Effect": "Allow",
+              "Action": [
+                "logs:CreateLogDelivery",
+                "logs:GetLogDelivery",
+                "logs:UpdateLogDelivery",
+                "logs:DeleteLogDelivery",
+                "logs:ListLogDeliveries",
+                "logs:PutResourcePolicy",
+                "logs:DescribeResourcePolicies",
+                "logs:DescribeLogGroups"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    "<project>-events-role": {
+      "logicalId": "EventsRole",
+      "trustedServices": [
+        "events.amazonaws.com"
+      ],
+      "managedPolicies": [],
+      "inlinePolicies": {
+        "start-pipeline": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": "states:StartExecution",
+              "Resource": "arn:aws:states:<region>:<account-id>:stateMachine:<project>-pipeline"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

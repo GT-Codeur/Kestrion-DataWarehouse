@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - Glue (catalog databases, raw tables, curated crawler, CDC transform job, data-quality gate job)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+  DataBucketName:
+    Type: String
+  GlueRoleArn:
+    Type: String
+  RawDatabaseName:
+    Type: String
+    Default: kestrion_iac_raw
+    AllowedPattern: '^[a-z][a-z0-9_]*$'
+  CuratedDatabaseName:
+    Type: String
+    Default: kestrion_iac_curated
+    AllowedPattern: '^[a-z][a-z0-9_]*$'
+
+Resources:
+  RawDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref RawDatabaseName
+        Description: DMS change log (Op, ts plus the source columns)
+
+  CuratedDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Ref CuratedDatabaseName
+        Description: Current-state tables and star schema files
+
+  # ---------------------------------------------------------------- raw tables (explicit DDL: the crawler
+  # mis-detects DMS folders that mix a LOAD file with dated CDC sub-folders)
+  RawCustomers:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableInput:
+        Name: customers
+        TableType: EXTERNAL_TABLE
+        Parameters: { classification: parquet }
+        StorageDescriptor:
+          Location: !Sub 's3://${DataBucketName}/raw/public/customers/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - { Name: op, Type: string }
+            - { Name: ts, Type: timestamp }
+            - { Name: customer_id, Type: int }
+            - { Name: customer_name, Type: string }
+            - { Name: city, Type: string }
+            - { Name: category, Type: string }
+            - { Name: onboarded_date, Type: date }
+
+  RawInventory:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableInput:
+        Name: inventory
+        TableType: EXTERNAL_TABLE
+        Parameters: { classification: parquet }
+        StorageDescriptor:
+          Location: !Sub 's3://${DataBucketName}/raw/public/inventory/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - { Name: op, Type: string }
+            - { Name: ts, Type: timestamp }
+            - { Name: product_id, Type: int }
+            - { Name: sku, Type: string }
+            - { Name: product_name, Type: string }
+            - { Name: category, Type: string }
+            - { Name: unit_cost, Type: 'decimal(10,2)' }
+            - { Name: qty_on_hand, Type: int }
+
+  RawOrders:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableInput:
+        Name: orders
+        TableType: EXTERNAL_TABLE
+        Parameters: { classification: parquet }
+        StorageDescriptor:
+          Location: !Sub 's3://${DataBucketName}/raw/public/orders/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - { Name: op, Type: string }
+            - { Name: ts, Type: timestamp }
+            - { Name: order_id, Type: int }
+            - { Name: customer_id, Type: int }
+            - { Name: order_date, Type: date }
+            - { Name: status, Type: string }
+
+  RawOrderLines:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref RawDatabase
+      TableInput:
+        Name: order_lines
+        TableType: EXTERNAL_TABLE
+        Parameters: { classification: parquet }
+        StorageDescriptor:
+          Location: !Sub 's3://${DataBucketName}/raw/public/order_lines/'
+          InputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe
+          Columns:
+            - { Name: op, Type: string }
+            - { Name: ts, Type: timestamp }
+            - { Name: line_id, Type: int }
+            - { Name: order_id, Type: int }
+            - { Name: product_id, Type: int }
+            - { Name: quantity, Type: int }
+            - { Name: unit_price, Type: 'decimal(10,2)' }
+
+  # ---------------------------------------------------------------- crawler (curated files are plain folders, so it behaves)
+  CuratedCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Name: !Sub '${ProjectName}-curated-crawler'
+      Role: !Ref GlueRoleArn
+      DatabaseName: !Ref CuratedDatabase
+      Targets:
+        S3Targets:
+          - Path: !Sub 's3://${DataBucketName}/curated/current/'
+          - Path: !Sub 's3://${DataBucketName}/curated/star/'
+      SchemaChangePolicy:
+        UpdateBehavior: UPDATE_IN_DATABASE
+        DeleteBehavior: LOG
+      Configuration: '{"Version":1.0,"Grouping":{"TableLevelConfiguration":4}}'
+
+  # ---------------------------------------------------------------- jobs
+  TransformJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub '${ProjectName}-cdc-transform'
+      Description: Resolve I/U/D change rows into current-state tables and build the star-schema files
+      Role: !Ref GlueRoleArn
+      GlueVersion: '4.0'
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      Timeout: 15
+      MaxRetries: 0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Command:
+        Name: glueetl
+        PythonVersion: '3'
+        ScriptLocation: !Sub 's3://${DataBucketName}/scripts/cdc_transform.py'
+      DefaultArguments:
+        '--BUCKET': !Ref DataBucketName
+        '--job-language': python
+        '--enable-metrics': 'true'
+
+  QualityGateJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub '${ProjectName}-dq-gate'
+      Description: Completeness, uniqueness, referential-integrity and validity checks with quarantine
+      Role: !Ref GlueRoleArn
+      GlueVersion: '4.0'
+      WorkerType: G.1X
+      NumberOfWorkers: 2
+      Timeout: 10
+      MaxRetries: 0
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
+      Command:
+        Name: glueetl
+        PythonVersion: '3'
+        ScriptLocation: !Sub 's3://${DataBucketName}/scripts/dq_gate.py'
+      DefaultArguments:
+        '--BUCKET': !Ref DataBucketName
+        '--RUN_ID': manual-run
+        '--job-language': python
+        '--enable-metrics': 'true'
+
+Outputs:
+  TransformJobName:
+    Value: !Ref TransformJob
+  QualityGateJobName:
+    Value: !Ref QualityGateJob
+  RawDatabaseName:
+    Value: !Ref RawDatabaseName
+  CuratedCrawlerName:
+    Value: !Ref CuratedCrawler

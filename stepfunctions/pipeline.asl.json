@@ -1,0 +1,173 @@
+{
+  "Comment": "Kestrion: check replication -> transform -> quality gate -> load -> notify. Dollar-brace placeholders are filled in by CloudFormation DefinitionSubstitutions.",
+  "TimeoutSeconds": 2400,
+  "StartAt": "CheckReplication",
+  "States": {
+    "CheckReplication": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:databasemigration:describeReplicationTasks",
+      "Parameters": {
+        "Filters": [{ "Name": "replication-task-id", "Values.$": "States.Array($.dms_task_id)" }]
+      },
+      "ResultSelector": { "status.$": "$.ReplicationTasks[0].Status" },
+      "ResultPath": "$.dms",
+      "Retry": [{ "ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 5, "MaxAttempts": 2, "BackoffRate": 2.0 }],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "IsReplicationRunning"
+    },
+    "IsReplicationRunning": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.dms.status", "StringEquals": "running", "Next": "TransformJob" }],
+      "Default": "ReplicationDown"
+    },
+    "ReplicationDown": {
+      "Type": "Pass",
+      "Result": { "Error": "ReplicationNotRunning", "Cause": "The DMS task is not in the running state" },
+      "ResultPath": "$.error",
+      "Next": "NotifyFailure"
+    },
+    "TransformJob": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${TransformJob}",
+        "Arguments": { "--BUCKET.$": "$.bucket" }
+      },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Glue.ConcurrentRunsExceededException"], "IntervalSeconds": 60, "MaxAttempts": 3, "BackoffRate": 1.5 },
+        { "ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 30, "MaxAttempts": 2, "BackoffRate": 2.0 }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "QualityGate"
+    },
+    "QualityGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "${GateJob}",
+        "Arguments": { "--BUCKET.$": "$.bucket", "--RUN_ID.$": "$$.Execution.Name" }
+      },
+      "ResultPath": null,
+      "Retry": [
+        { "ErrorEquals": ["Glue.ConcurrentRunsExceededException"], "IntervalSeconds": 60, "MaxAttempts": 3, "BackoffRate": 1.5 }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "ReadGateResult"
+    },
+    "ReadGateResult": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+      "Parameters": {
+        "Bucket.$": "$.bucket",
+        "Key.$": "States.Format('dq/results/{}.json', $$.Execution.Name)"
+      },
+      "ResultSelector": { "dq.$": "States.StringToJson($.Body)" },
+      "ResultPath": "$.gate",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "GatePassed"
+    },
+    "GatePassed": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.gate.dq.passed", "BooleanEquals": true, "Next": "LoadRedshift" }],
+      "Default": "NotifyQuarantine"
+    },
+    "LoadRedshift": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:batchExecuteStatement",
+      "Parameters": {
+        "WorkgroupName": "${WorkgroupName}",
+        "Database": "${DatabaseName}",
+        "Sqls": [
+          "DELETE FROM public.fact_order_lines",
+          "DELETE FROM public.dim_customer",
+          "DELETE FROM public.dim_product",
+          "DELETE FROM public.dim_date",
+          "COPY public.dim_customer FROM 's3://${DataBucket}/curated/star/dim_customer/' IAM_ROLE default FORMAT AS PARQUET",
+          "COPY public.dim_product FROM 's3://${DataBucket}/curated/star/dim_product/' IAM_ROLE default FORMAT AS PARQUET",
+          "COPY public.dim_date FROM 's3://${DataBucket}/curated/star/dim_date/' IAM_ROLE default FORMAT AS PARQUET",
+          "COPY public.fact_order_lines FROM 's3://${DataBucket}/curated/star/fact_order_lines/' IAM_ROLE default FORMAT AS PARQUET"
+        ]
+      },
+      "ResultSelector": { "statementId.$": "$.Id" },
+      "ResultPath": "$.load",
+      "Retry": [{ "ErrorEquals": ["States.TaskFailed"], "IntervalSeconds": 20, "MaxAttempts": 2, "BackoffRate": 2.0 }],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "WaitForLoad"
+    },
+    "WaitForLoad": { "Type": "Wait", "Seconds": 10, "Next": "DescribeLoad" },
+    "DescribeLoad": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:describeStatement",
+      "Parameters": { "Id.$": "$.load.statementId" },
+      "ResultSelector": { "status.$": "$.Status" },
+      "ResultPath": "$.loadStatus",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "NotifyFailure" }],
+      "Next": "LoadDone"
+    },
+    "LoadDone": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.loadStatus.status", "StringEquals": "FINISHED", "Next": "NotifySuccess" },
+        { "Variable": "$.loadStatus.status", "StringEquals": "FAILED", "Next": "GetLoadError" },
+        { "Variable": "$.loadStatus.status", "StringEquals": "ABORTED", "Next": "GetLoadError" }
+      ],
+      "Default": "WaitForLoad"
+    },
+    "GetLoadError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:redshiftdata:describeStatement",
+      "Parameters": { "Id.$": "$.load.statementId" },
+      "ResultSelector": { "Error": "RedshiftLoadFailed", "Cause.$": "$.Error" },
+      "ResultPath": "$.error",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "LoadFailed" }],
+      "Next": "NotifyFailure"
+    },
+    "LoadFailed": {
+      "Type": "Pass",
+      "Result": { "Error": "RedshiftLoadFailed", "Cause": "The Redshift load transaction failed or was aborted. Check sys_query_history and sys_load_error_detail" },
+      "ResultPath": "$.error",
+      "Next": "NotifyFailure"
+    },
+    "NotifySuccess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "Kestrion pipeline: SUCCESS",
+        "Message.$": "States.Format('Run {} finished. All quality checks passed and Redshift was reloaded.', $$.Execution.Name)"
+      },
+      "End": true
+    },
+    "NotifyQuarantine": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "Kestrion pipeline: QUALITY GATE FAILED (load skipped)",
+        "Message.$": "States.JsonToString($.gate.dq)"
+      },
+      "Next": "FailQuality"
+    },
+    "FailQuality": {
+      "Type": "Fail",
+      "Error": "DataQualityGateFailed",
+      "Cause": "One or more checks failed. Rows were quarantined and Redshift was not loaded."
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${TopicArn}",
+        "Subject": "Kestrion pipeline: FAILED",
+        "Message.$": "States.JsonToString($.error)"
+      },
+      "Next": "FailPipeline"
+    },
+    "FailPipeline": {
+      "Type": "Fail",
+      "Error": "PipelineFailed",
+      "Cause": "See the SNS notification and the execution history."
+    }
+  }
+}

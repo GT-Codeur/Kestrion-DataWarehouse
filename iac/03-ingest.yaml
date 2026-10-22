@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - CDC ingestion (DMS replication instance, endpoints and full-load+CDC task to S3 raw)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Default-VPC subnets in at least two Availability Zones
+  DmsSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  DbEndpoint:
+    Type: String
+  DbName:
+    Type: String
+    Default: kestriondb
+  DbPassword:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^[a-zA-Z0-9]*$'
+  DataBucketName:
+    Type: String
+  DmsS3RoleArn:
+    Type: String
+  ReplicationInstanceClass:
+    Type: String
+    Default: dms.c6i.large
+
+Resources:
+  # Requires the account-level role dms-vpc-role (created once by iac/deploy.sh when missing)
+  SubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Properties:
+      ReplicationSubnetGroupIdentifier: !Sub '${ProjectName}-dms-subnets'
+      ReplicationSubnetGroupDescription: Subnets for the Kestrion DMS replication instance
+      SubnetIds: !Ref SubnetIds
+
+  ReplicationInstance:
+    Type: AWS::DMS::ReplicationInstance
+    Properties:
+      ReplicationInstanceIdentifier: !Sub '${ProjectName}-dms-ri'
+      ReplicationInstanceClass: !Ref ReplicationInstanceClass
+      AllocatedStorage: 20
+      MultiAZ: false
+      PubliclyAccessible: true
+      ReplicationSubnetGroupIdentifier: !Ref SubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DmsSecurityGroupId
+
+  SourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub '${ProjectName}-pg-source'
+      EndpointType: source
+      EngineName: postgres
+      ServerName: !Ref DbEndpoint
+      Port: 5432
+      DatabaseName: !Ref DbName
+      Username: postgres
+      Password: !Ref DbPassword
+      SslMode: require
+
+  # Op (I/U/D) on every row, including the full load, plus a commit timestamp column "ts"
+  TargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub '${ProjectName}-s3-target'
+      EndpointType: target
+      EngineName: s3
+      S3Settings:
+        BucketName: !Ref DataBucketName
+        BucketFolder: raw
+        ServiceAccessRoleArn: !Ref DmsS3RoleArn
+        DataFormat: parquet
+        IncludeOpForFullLoad: true
+        TimestampColumnName: ts
+        DatePartitionEnabled: true
+        ParquetTimestampInMillisecond: true
+        CdcMaxBatchInterval: 30
+
+  ReplicationTask:
+    Type: AWS::DMS::ReplicationTask
+    Properties:
+      ReplicationTaskIdentifier: !Sub '${ProjectName}-full-cdc'
+      MigrationType: full-load-and-cdc
+      ReplicationInstanceArn: !Ref ReplicationInstance
+      SourceEndpointArn: !Ref SourceEndpoint
+      TargetEndpointArn: !Ref TargetEndpoint
+      TableMappings: |
+        {
+          "rules": [
+            {
+              "rule-type": "selection",
+              "rule-id": "1",
+              "rule-name": "include-public",
+              "object-locator": { "schema-name": "public", "table-name": "%" },
+              "rule-action": "include"
+            }
+          ]
+        }
+
+Outputs:
+  ReplicationTaskArn:
+    Value: !Ref ReplicationTask
+  ReplicationTaskId:
+    Value: !Sub '${ProjectName}-full-cdc'

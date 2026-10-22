@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kestrion pipeline - foundation (data bucket, SNS alerts topic, least-privilege IAM roles)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: kestrion-iac
+    AllowedPattern: '^[a-z][a-z0-9-]{2,24}$'
+    Description: Prefix for every resource name. Keep it different from any hand-built environment.
+  AlertEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Address that receives pipeline notifications (confirm the SNS subscription email)
+
+Resources:
+  # ---------------------------------------------------------------- storage
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Sub '${ProjectName}-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-athena-results
+            Status: Enabled
+            Prefix: athena-results/
+            ExpirationInDays: 7
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub '${DataBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  # ---------------------------------------------------------------- alerts
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-pipeline-alerts'
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  # ---------------------------------------------------------------- IAM
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-glue-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: glue.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSGlueServiceRole'
+      Policies:
+        - PolicyName: data-bucket-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject']
+                Resource: !Sub '${DataBucket.Arn}/*'
+              - Effect: Allow
+                Action: ['s3:ListBucket', 's3:GetBucketLocation']
+                Resource: !GetAtt DataBucket.Arn
+
+  # DMS writes change files to raw/ only
+  DmsS3Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-dms-s3-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: dms.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: write-raw-prefix
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ['s3:PutObject', 's3:DeleteObject', 's3:PutObjectTagging']
+                Resource: !Sub '${DataBucket.Arn}/raw/*'
+              - Effect: Allow
+                Action: ['s3:ListBucket', 's3:GetBucketLocation']
+                Resource: !GetAtt DataBucket.Arn
+
+  # Redshift COPY reads curated/ only. Set as the namespace default IAM role.
+  RedshiftRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-redshift-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ['redshift.amazonaws.com', 'redshift-serverless.amazonaws.com']
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: read-curated-prefix
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${DataBucket.Arn}/curated/*'
+              - Effect: Allow
+                Action: ['s3:ListBucket', 's3:GetBucketLocation']
+                Resource: !GetAtt DataBucket.Arn
+
+  # Execution role of the state machine
+  SfnRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-sfn-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: states.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: pipeline-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DmsReplicationCheck
+                Effect: Allow
+                Action: 'dms:DescribeReplicationTasks'
+                Resource: '*'
+              - Sid: RunTheTwoGlueJobs
+                Effect: Allow
+                Action: ['glue:StartJobRun', 'glue:GetJobRun', 'glue:GetJobRuns', 'glue:BatchStopJobRun']
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/${ProjectName}-cdc-transform'
+                  - !Sub 'arn:${AWS::Partition}:glue:${AWS::Region}:${AWS::AccountId}:job/${ProjectName}-dq-gate'
+              - Sid: ReadQualityVerdict
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: !Sub '${DataBucket.Arn}/dq/results/*'
+              - Sid: RedshiftDataApi
+                Effect: Allow
+                Action:
+                  - 'redshift-data:BatchExecuteStatement'
+                  - 'redshift-data:ExecuteStatement'
+                  - 'redshift-data:DescribeStatement'
+                  - 'redshift-data:GetStatementResult'
+                Resource: '*'
+              - Sid: RedshiftServerlessCredentials
+                Effect: Allow
+                Action: 'redshift-serverless:GetCredentials'
+                Resource: !Sub 'arn:${AWS::Partition}:redshift-serverless:${AWS::Region}:${AWS::AccountId}:workgroup/*'
+              - Sid: PublishAlerts
+                Effect: Allow
+                Action: 'sns:Publish'
+                Resource: !Ref AlertsTopic
+              - Sid: ExecutionLogging
+                Effect: Allow
+                Action:
+                  - 'logs:CreateLogDelivery'
+                  - 'logs:GetLogDelivery'
+                  - 'logs:UpdateLogDelivery'
+                  - 'logs:DeleteLogDelivery'
+                  - 'logs:ListLogDeliveries'
+                  - 'logs:PutResourcePolicy'
+                  - 'logs:DescribeResourcePolicies'
+                  - 'logs:DescribeLogGroups'
+                Resource: '*'
+
+  # EventBridge may only start this one state machine
+  EventsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-events-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: start-pipeline
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'states:StartExecution'
+                Resource: !Sub 'arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${ProjectName}-pipeline'
+
+Outputs:
+  BucketName:
+    Value: !Ref DataBucket
+  TopicArn:
+    Value: !Ref AlertsTopic
+  GlueRoleArn:
+    Value: !GetAtt GlueRole.Arn
+  DmsS3RoleArn:
+    Value: !GetAtt DmsS3Role.Arn
+  RedshiftRoleArn:
+    Value: !GetAtt RedshiftRole.Arn
+  SfnRoleArn:
+    Value: !GetAtt SfnRole.Arn
+  SfnRoleName:
+    Value: !Ref SfnRole
+  EventsRoleArn:
+    Value: !GetAtt EventsRole.Arn
