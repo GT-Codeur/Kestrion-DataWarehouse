@@ -2,18 +2,6 @@
 
 An automated change-data-capture (CDC) pipeline for a fictional wholesale distributor. Every insert, update and delete in the operational order database is replicated to an S3 data lake, resolved into current-state tables, checked by a data-quality gate, and loaded into a Redshift Serverless star schema. The whole chain runs on a schedule, retries transient failures, quarantines bad data, and reports by email. Everything is defined as CloudFormation and deploys with one command.
 
-Built for CCGC 5506 (Humber College), Mid-Term Project 5.
-
-```
-RDS PostgreSQL --DMS--> S3 raw --Glue ELT--> S3 curated --Glue quality gate--> Redshift Serverless
-                                                  |                                  ^
-                                                  +--> S3 quarantine + SNS (on failure)
-
-EventBridge (every 30 min) -> Step Functions:
-  CheckReplication -> Transform -> QualityGate -> ReadVerdict -> [pass] LoadRedshift -> SNS
-                                                              \-> [fail] Quarantine notice -> SNS
-```
-
 ![Architecture](docs/images/architecture.png)
 
 ## Contents
@@ -321,4 +309,4 @@ Run `iac/deploy.sh teardown` when you are done.
 
 ## Author
 
-Germain Tegomo Ngoune, CCGC 5506, Humber College, October 2026.
+Germain Tegomo, Colins Lekemo, Nashrah Mahak.
